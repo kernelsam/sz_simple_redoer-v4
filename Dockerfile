@@ -12,6 +12,8 @@ LABEL Name="brain/sz_simple_redoer" \
       Maintainer="brianmacy@gmail.com" \
       Version="DEV"
 
+USER root
+
 RUN apt-get update \
  && apt-get -y install curl python3 python3-pip python3-psycopg2 \
  && python3 -mpip install orjson \
