@@ -14,13 +14,15 @@ import time
 import random
 
 from senzing import (
-    G2Engine,
-    G2Exception,
-    ExceptionCode,
-    G2EngineFlags,
-    G2BadInputException,
-    G2RetryTimeoutExceededException,
+    SzConfig,
+    SzConfigManager,
+    SzEngine,
+    SzEngineFlags,
+    SzBadInputError,
+    SzRetryTimeoutExceededError,
 )
+
+import senzing_core
 
 INTERVAL = 1000
 LONG_RECORD = os.getenv("LONG_RECORD", default=300)
@@ -44,11 +46,10 @@ def loggingID(rec):
 def process_msg(engine, msg, info):
     try:
         if info:
-            response = bytearray()
-            engine.processWithInfo(msg, response)
-            return response.decode()
+            response = engine.process_redo_record(msg, SzEngineFlags.SZ_WITH_INFO)
+            return response
         else:
-            engine.process(msg)
+            engine.process_redo_record(msg)
             return None
     except Exception as err:
         print(f"{err} [{msg}]", file=sys.stderr)
@@ -101,13 +102,10 @@ try:
         )
         exit(-1)
 
-    # Initialize the G2Engine
-    g2 = G2Engine()
-    g2.init("sz_simple_redoer", engine_config, args.debugTrace)
+    # Initialize Sz
+    factory = senzing_core.SzAbstractFactory("sz_simple_redoer", engine_config, verbose_logging=args.debugTrace)
+    g2 = factory.create_engine()
     logCheckTime = prevTime = time.time()
-
-    senzing_governor = importlib.import_module("senzing_governor")
-    governor = senzing_governor.Governor(hint="sz_simple_redoer")
 
     max_workers = int(os.getenv("SENZING_THREADS_PER_PROCESS", 0))
 
@@ -142,14 +140,11 @@ try:
                                 print(
                                     result
                                 )  # we would handle pushing to withinfo queues here BUT that is likely a second future task/executor
-                        except G2BadInputException as err:
-                            if (
-                                ExceptionCode(err) == 7426
-                            ):  # log transliteration issue specially
-                                print(f"Transliteration failure: {msg[TUPLE_MSG]}")
-                            pass
-                        except G2RetryTimeoutExceededException as err:
-                            print("Hit retry timeout")
+                        except (SzRetryTimeoutExceededError, SzBadInputError) as err:
+                                record = orjson.loads(msg[TUPLE_MSG])
+                                print(
+                                      f'FAILED due to bad data or timeout: {record["DATA_SOURCE"]} : {record["RECORD_ID"]}'
+                                )
 
                         messages += 1
 
@@ -168,9 +163,8 @@ try:
                     ):  # log long running records
                         logCheckTime = nowTime
 
-                        response = bytearray()
-                        g2.stats(response)
-                        print(f"\n{response.decode()}\n")
+                        reponse = g2.get_stats()
+                        print(f"\n{response}\n")
 
                         numStuck = 0
                         numRejected = 0
@@ -188,17 +182,18 @@ try:
                                     f"All {executor._max_workers} threads are stuck on long running records"
                                 )
 
-                pauseSeconds = governor.govern()
+                # switch to getDatasourceInfo
+                #pauseSeconds = governor.govern()
                 # either governor fully triggered or our executor is full
                 # not going to get more messages
-                if pauseSeconds < 0.0:
-                    time.sleep(1)
-                    continue
+                #if pauseSeconds < 0.0:
+                #    time.sleep(1)
+                #    continue
                 if len(futures) >= executor._max_workers:
                     time.sleep(1)
                     continue
-                if pauseSeconds > 0.0:
-                    time.sleep(pauseSeconds)
+                #if pauseSeconds > 0.0:
+                #    time.sleep(pauseSeconds)
 
                 if empty_pause:
                     if time.time() < empty_pause:
@@ -208,8 +203,7 @@ try:
 
                 while len(futures) < executor._max_workers:
                     try:
-                        response = bytearray()
-                        g2.getRedoRecord(response)
+                        response = g2.get_redo_record()
                         # print(response)
                         if not response:
                             print(
@@ -217,7 +211,7 @@ try:
                             )
                             empty_pause = time.time() + EMPTY_PAUSE_TIME
                             break
-                        msg = response.decode()
+                        msg = response
                         futures[executor.submit(process_msg, g2, msg, args.info)] = (
                             msg,
                             time.time(),
