@@ -13,7 +13,7 @@ LABEL Name="brain/sz_simple_redoer" \
 USER root
 
 RUN apt-get update \
-  && apt-get -y install curl python3 python3-pip python3-psycopg2
+  && apt-get -y install curl python3 python3-pip python3-psycopg2 python3-venv
 
 ENV VIRTUAL_ENV=/opt/venv
 RUN python3 -m venv $VIRTUAL_ENV
