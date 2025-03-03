@@ -163,7 +163,7 @@ try:
                     ):  # log long running records
                         logCheckTime = nowTime
 
-                        reponse = g2.get_stats()
+                        response = g2.get_stats()
                         print(f"\n{response}\n")
 
                         numStuck = 0
