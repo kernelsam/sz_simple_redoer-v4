@@ -103,7 +103,7 @@ try:
         exit(-1)
 
     # Initialize Sz
-    factory = senzing_core.SzAbstractFactory("sz_simple_redoer", engine_config, verbose_logging=args.debugTrace)
+    factory = senzing_core.SzAbstractFactoryCore("sz_simple_redoer", engine_config, verbose_logging=args.debugTrace)
     g2 = factory.create_engine()
     logCheckTime = prevTime = time.time()
 
@@ -163,7 +163,7 @@ try:
                     ):  # log long running records
                         logCheckTime = nowTime
 
-                        reponse = g2.get_stats()
+                        response = g2.get_stats()
                         print(f"\n{response}\n")
 
                         numStuck = 0
