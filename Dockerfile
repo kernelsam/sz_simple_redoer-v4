@@ -32,6 +32,16 @@ ARG WITH_MSSQL=1
 # senzingsdk-setup installs the feature expression-creator libs (e.g. libg2CreditCardECreator.so)
 # into /opt/senzing/er/lib; the base senzingsdk-runtime omits them (without it: SENZ0087). It is
 # backend-independent, so it is always installed.
+#
+# Version policy: the base image ships the senzing STAGING apt repo, whose senzingsdk-* packages
+# track the latest staging build ACROSS semantic versions (e.g. 4.4.0), so an unpinned install
+# drags senzingsdk-runtime off the base image's version. We instead hold all senzingsdk-* at the
+# base image's SEMANTIC version (the X.Y.Z of the installed runtime, e.g. 4.3.3) while allowing the
+# latest BUILD number for it (X.Y.Z-*) via an apt preferences pin. So a rebuild picks up the newest
+# 4.3.3-* build but never jumps to 4.4.0. Deriving X.Y.Z from the installed runtime makes this track
+# whatever base tag is specified. senzingsdk-setup is installed as before; the pin holds it and its
+# senzingsdk-tools/-runtime dependencies to the same X.Y.Z build. The staging repo (owned by the
+# senzingstagingrepo package) is purged afterward so nothing downstream can float the version.
 # MSSQL path: msodbcsql18 (ODBC Driver 18) via packages-microsoft-prod.deb (registers the MS apt
 # repo + key for Debian 13 / trixie) + an /etc/odbc.ini [MSSQL] DSN with AutoTranslate=No (prevents UTF-8
 # corruption; Server/Database/port come from the engine connection string, setupenv.sh). Debian's
@@ -41,7 +51,13 @@ ARG WITH_MSSQL=1
 # NOTE: use the debian/13 MS repo, not debian/12 — trixie's apt (Sequoia/sqv) rejects the
 # older repo key's SHA-1 self-signature ("repository is not signed"); the debian/13 repo
 # ships a trixie-compatible key.
-RUN apt-get update \
+RUN echo "=== Senzing packages present in base image (before apt update): ===" \
+ && (dpkg -l | grep -i senzing || echo "  (none found)") \
+ && SZ_SEMVER="$(dpkg-query -W -f='${Version}' senzingsdk-runtime | cut -d- -f1)" \
+ && echo "=== Holding senzingsdk-* at ${SZ_SEMVER}-* (base image semver, latest build) ===" \
+ && printf 'Package: senzingsdk-*\nPin: version %s-*\nPin-Priority: 1001\n' "${SZ_SEMVER}" \
+      > /etc/apt/preferences.d/senzing-pin.pref \
+ && apt-get update \
  && apt-get -y install --no-install-recommends \
       ca-certificates curl gnupg apt-transport-https \
       python3 python3-pip \
@@ -58,6 +74,7 @@ RUN apt-get update \
      && ACCEPT_EULA=Y apt-get -y install --no-install-recommends msodbcsql18 unixodbc \
      && printf '[MSSQL]\nDriver = ODBC Driver 18 for SQL Server\nAutoTranslate = No\n' > /etc/odbc.ini ; fi \
  && apt-get -y remove python3-pip \
+ && apt-get -y purge senzingstagingrepo \
  && apt-get -y autoremove \
  && apt-get -y clean \
  && rm -rf /var/lib/apt/lists/*
